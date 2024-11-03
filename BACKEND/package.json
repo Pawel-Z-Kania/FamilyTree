@@ -1,0 +1,15 @@
+{
+  "name": "backend",
+  "databasePort": 5432,
+  "scripts": {
+    "server:test": "echo \"Error: no test specified\" && exit 1",
+    "server:start": "nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "mongoose": "^8.8.0",
+    "nodemon": "^3.1.7",
+    "pg": "^8.13.1"
+  }
+}
