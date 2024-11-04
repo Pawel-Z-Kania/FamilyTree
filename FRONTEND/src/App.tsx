@@ -24,7 +24,7 @@ interface MarriageNode extends d3.SimulationNodeDatum {
 
 function App() {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
-  const [newMember, setNewMember] = useState({ first_name: '', last_name: '' });
+  const [newMember, setNewMember] = useState({ first_name: '', last_name: '', relative: '', relationship: '' });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const displayWidth = window.innerWidth;
   const displayHeight = 800;
@@ -39,20 +39,80 @@ function App() {
       });
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setNewMember(prevState => ({ ...prevState, [name]: value }));
   };
 
   const handleAddMember = () => {
+    if (!newMember.relative || !newMember.relationship) {
+      alert('Please select a relative and a relationship type.');
+      return;
+    }
+
+    const relative = familyMembers.find(member => `${member.first_name} ${member.last_name}` === newMember.relative);
+    if (!relative) {
+      alert('Selected relative not found.');
+      return;
+    }
+
     const newFamilyMember: FamilyMember = {
       first_name: newMember.first_name,
       last_name: newMember.last_name,
       parent_marriage_id: null,
       marriage_id: null,
     };
-    setFamilyMembers([...familyMembers, newFamilyMember]);
-    setNewMember({ first_name: '', last_name: '' });
+
+    switch (newMember.relationship) {
+      case 'sibling':
+        if (relative.parent_marriage_id) {
+          newFamilyMember.parent_marriage_id = relative.parent_marriage_id;
+        } else {
+          const newParentMarriageId = Date.now();
+          newFamilyMember.parent_marriage_id = newParentMarriageId;
+          relative.parent_marriage_id = newParentMarriageId;
+        }
+        break;
+      case 'child':
+        if (relative.marriage_id) {
+          newFamilyMember.parent_marriage_id = relative.marriage_id;
+        } else {
+          const newMarriageId = Date.now();
+          newFamilyMember.parent_marriage_id = newMarriageId;
+          relative.marriage_id = newMarriageId;
+        }
+        break;
+      case 'parent':
+        if (relative.parent_marriage_id) {
+          newFamilyMember.marriage_id = relative.parent_marriage_id;
+        } else {
+          const newParentMarriageId = Date.now();
+          newFamilyMember.marriage_id = newParentMarriageId;
+          relative.parent_marriage_id = newParentMarriageId;
+        }
+        break;
+      case 'spouse':
+        if (relative.marriage_id) {
+          newFamilyMember.marriage_id = relative.marriage_id;
+        } else {
+          const newMarriageId = Date.now();
+          newFamilyMember.marriage_id = newMarriageId;
+          relative.marriage_id = newMarriageId;
+        }
+        break;
+      default:
+        alert('Invalid relationship type.');
+        return;
+    }
+
+    axios.post('http://localhost:3000/api/family-members', { newFamilyMember, relative })
+      .then(response => {
+        setFamilyMembers([...familyMembers, response.data.newFamilyMember, response.data.relative]);
+        setNewMember({ first_name: '', last_name: '', relative: '', relationship: '' });
+      })
+      .catch(error => {
+        console.error('There was an error adding the family member!', error);
+      });
   };
 
   useEffect(() => {
@@ -131,7 +191,7 @@ function App() {
         .selectAll('circle')
         .data(nodes)
         .enter().append('circle')
-        .attr('r', d => 'type' in d && d.type === 'marriage' ? 8 : 5)
+        .attr('r', d => 'type' in d && d.type === 'marriage' ? 4 : 8)
         .attr('fill', d => 'type' in d && d.type === 'marriage' ? 'yellow' : '#69b3a2')
         .call(d3.drag<SVGCircleElement, FamilyNode | MarriageNode>()
           .on('start', dragstarted)
@@ -184,13 +244,18 @@ function App() {
     }
   }, [familyMembers]);
 
+
+
+  // #region HTML Content =================================================================================================
+
   return (
     <div style={{ position: 'relative' }}>
       <h1 style={{ textAlign: 'center' }}>Family Members</h1>
       <svg ref={svgRef} width={displayWidth} height={displayHeight}></svg>
-      <div style={{ display: 'flex', position: 'absolute', top: '10%', right: '20px', width: '300px', backgroundColor: 'rgb(30 30 30)', borderRadius: '10px', padding: '20px' }}>
+      <div style={{ display: 'flex', position: 'absolute', top: '10%', right: '20px', width: '320px', backgroundColor: 'rgb(30 30 30)', borderRadius: '10px', padding: '20px' }}>
         <form onSubmit={e => { e.preventDefault(); handleAddMember(); }}
           style={{ width: '90%' }}>
+          Family member details:
           <div style={{ marginBottom: '10px' }}>
             <input
               type="text"
@@ -199,10 +264,10 @@ function App() {
               onChange={handleInputChange}
               placeholder="First Name"
               required
-              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey' }}
+              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey', color: '#333' }}
             />
           </div>
-          <div style={{ marginBottom: '10px' }}>
+          <div style={{ marginBottom: '20px' }}>
             <input
               type="text"
               name="last_name"
@@ -210,8 +275,42 @@ function App() {
               onChange={handleInputChange}
               placeholder="Last Name"
               required
-              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey' }}
+              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey', color: '#333' }}
             />
+          </div>
+          Relationships:
+          <div style={{ marginBottom: '10px' }}>
+            <select
+              name="relative"
+              value={newMember.relative}
+              onChange={handleInputChange}
+              required
+              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey', color: '#333' }}
+            >
+              <option value="">*select relative*</option>
+              {familyMembers.map((member, index) => (
+                <option key={index} value={`${member.first_name} ${member.last_name}`}>
+                  {member.first_name} {member.last_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ marginBottom: '30px' }}>
+            <span>is a </span>
+            <select
+              name="relationship"
+              value={newMember.relationship}
+              onChange={handleInputChange}
+              required
+              style={{ width: 'auto', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey', color: '#333' }}
+            >
+              <option value="">*relationship type*</option>
+              <option value="sibling">Sibling</option>
+              <option value="child">Child</option>
+              <option value="parent">Parent</option>
+              <option value="spouse">Spouse</option>
+            </select>
+            <span> to this person.</span>
           </div>
           <button
             type="submit"
