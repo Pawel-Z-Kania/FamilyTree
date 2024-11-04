@@ -146,11 +146,32 @@ function App() {
 
       nodes.push(...marriageNodes);
 
+      const parentMarriageMap = new Map<number, number[]>();
+
+      nodes.forEach(node => {
+        if ('parent_marriage_id' in node && node.parent_marriage_id !== null) {
+          if (!parentMarriageMap.has(node.parent_marriage_id)) {
+            parentMarriageMap.set(node.parent_marriage_id, []);
+          }
+          parentMarriageMap.get(node.parent_marriage_id)!.push(node.id);
+        }
+      });
+
+      parentMarriageMap.forEach((ids, parentMarriageId) => {
+        if (ids.length > 1 && !marriageMap.has(parentMarriageId)) {
+          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage' };
+          marriageNodes.push(marriageNode);
+          marriageMap.set(parentMarriageId, [marriageNode.id, ...ids]);
+        }
+      });
+
+      nodes.push(...marriageNodes);
+
       const links: { source: number; target: number }[] = [];
 
       nodes.forEach(node => {
         if ('parent_marriage_id' in node && node.parent_marriage_id !== null) {
-          const parentMarriageNode = node.parent_marriage_id !== null ? nodes.find(n => 'type' in n && n.type === 'marriage' && n.id === marriageMap.get(node.parent_marriage_id!)![0]) : null;
+          const parentMarriageNode = node.parent_marriage_id !== null ? nodes.find(n => 'type' in n && n.type === 'marriage' && marriageMap.get(node.parent_marriage_id!) && n.id === marriageMap.get(node.parent_marriage_id!)![0]) : null;
           if (parentMarriageNode) {
             links.push({ source: parentMarriageNode.id, target: node.id });
           }
@@ -255,7 +276,7 @@ function App() {
       <div style={{ display: 'flex', position: 'absolute', top: '10%', right: '20px', width: '320px', backgroundColor: 'rgb(30 30 30)', borderRadius: '10px', padding: '20px' }}>
         <form onSubmit={e => { e.preventDefault(); handleAddMember(); }}
           style={{ width: '90%' }}>
-          Family member details:
+          <div>Family member details:</div>
           <div style={{ marginBottom: '10px' }}>
             <input
               type="text"
@@ -278,7 +299,7 @@ function App() {
               style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey', color: '#333' }}
             />
           </div>
-          Relationships:
+          <div></div>Relationships:
           <div style={{ marginBottom: '10px' }}>
             <select
               name="relative"
