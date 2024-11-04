@@ -6,15 +6,15 @@ import './App.css';
 interface FamilyMember {
   first_name: string;
   last_name: string;
-  parent_marriage_id: number;
-  marriage_id: number;
+  parent_marriage_id: number | null;
+  marriage_id: number | null;
 }
 
 interface FamilyNode extends d3.SimulationNodeDatum {
   id: number;
   name: string;
-  parent_marriage_id: number;
-  marriage_id: number;
+  parent_marriage_id: number | null;
+  marriage_id: number | null;
 }
 
 interface MarriageNode extends d3.SimulationNodeDatum {
@@ -24,8 +24,9 @@ interface MarriageNode extends d3.SimulationNodeDatum {
 
 function App() {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [newMember, setNewMember] = useState({ first_name: '', last_name: '' });
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const displayWidth = 1000;
+  const displayWidth = window.innerWidth;
   const displayHeight = 800;
 
   useEffect(() => {
@@ -37,15 +38,31 @@ function App() {
         console.error('There was an error fetching the family members!', error);
       });
   }, []);
-  
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setNewMember(prevState => ({ ...prevState, [name]: value }));
+  };
+
+  const handleAddMember = () => {
+    const newFamilyMember: FamilyMember = {
+      first_name: newMember.first_name,
+      last_name: newMember.last_name,
+      parent_marriage_id: null,
+      marriage_id: null,
+    };
+    setFamilyMembers([...familyMembers, newFamilyMember]);
+    setNewMember({ first_name: '', last_name: '' });
+  };
+
   useEffect(() => {
     if (familyMembers.length > 0) {
       const svg = d3.select(svgRef.current);
       svg.selectAll('*').remove(); // Clear previous content
-  
+
       const width = displayWidth;
       const height = displayHeight;
-  
+
       const nodes: (FamilyNode | MarriageNode)[] = familyMembers.map((member, index) => ({
         id: index,
         name: `${member.first_name} ${member.last_name}`,
@@ -55,7 +72,7 @@ function App() {
 
       const marriageNodes: MarriageNode[] = [];
       const marriageMap = new Map<number, number[]>();
-  
+
       nodes.forEach(node => {
         if ('marriage_id' in node && node.marriage_id !== null) {
           if (!marriageMap.has(node.marriage_id)) {
@@ -68,30 +85,38 @@ function App() {
       });
 
       nodes.push(...marriageNodes);
-  
+
       const links: { source: number; target: number }[] = [];
-  
+
       nodes.forEach(node => {
         if ('parent_marriage_id' in node && node.parent_marriage_id !== null) {
-          const parent = nodes.find(n => 'marriage_id' in n && n.marriage_id === node.parent_marriage_id);
-          if (parent) {
-            links.push({ source: parent.id, target: node.id });
+          const parentMarriageNode = node.parent_marriage_id !== null ? nodes.find(n => 'type' in n && n.type === 'marriage' && n.id === marriageMap.get(node.parent_marriage_id!)![0]) : null;
+          if (parentMarriageNode) {
+            links.push({ source: parentMarriageNode.id, target: node.id });
           }
         }
       });
-  
+
       marriageMap.forEach(ids => {
         const marriageNodeId = ids[0];
         for (let i = 1; i < ids.length; i++) {
           links.push({ source: marriageNodeId, target: ids[i] });
         }
       });
-  
+
       const simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => (d as FamilyNode | MarriageNode).id).distance(100))
+        .force('link', d3.forceLink(links).id(d => (d as FamilyNode | MarriageNode).id).distance(d => {
+          const link = d as { source: number; target: number };
+          const sourceNode = nodes.find(n => n.id === link.source);
+          const targetNode = nodes.find(n => n.id === link.target);
+          if (sourceNode && targetNode && 'marriage_id' in sourceNode && 'marriage_id' in targetNode && sourceNode.marriage_id === targetNode.marriage_id) {
+            return 20; // Shorter distance for marriage links
+          }
+          return 100; // Original distance
+        }))
         .force('charge', d3.forceManyBody().strength(-300))
         .force('center', d3.forceCenter(width / 2, height / 2));
-  
+
       const link = svg.append('g')
         .attr('stroke-opacity', 0.6)
         .selectAll('line')
@@ -99,7 +124,7 @@ function App() {
         .enter().append('line')
         .attr('stroke-width', 1.5)
         .attr('stroke', '#999');
-  
+
       const node = svg.append('g')
         .attr('stroke', '#fff')
         .attr('stroke-width', 1.5)
@@ -112,7 +137,7 @@ function App() {
           .on('start', dragstarted)
           .on('drag', dragged)
           .on('end', dragended));
-  
+
       const labels = svg.append('g')
         .selectAll('text')
         .data(nodes)
@@ -121,36 +146,36 @@ function App() {
         .attr('y', d => d.y!)
         .attr('dy', -10)
         .attr('text-anchor', 'middle')
-        .attr('fill', 'black') 
+        .attr('fill', 'gray')
         .text(d => 'name' in d ? d.name : 'Marriage');
-  
+
       simulation.on('tick', () => {
         link
           .attr('x1', d => ((d.source as unknown) as FamilyNode).x!)
           .attr('y1', d => ((d.source as unknown) as FamilyNode).y!)
           .attr('x2', d => ((d.target as unknown) as FamilyNode).x!)
           .attr('y2', d => ((d.target as unknown) as FamilyNode).y!);
-  
+
         node
           .attr('cx', d => d.x!)
           .attr('cy', d => d.y!);
-  
+
         labels
           .attr('x', d => d.x!)
           .attr('y', d => d.y!);
       });
-  
+
       function dragstarted(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       }
-  
+
       function dragged(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         d.fx = event.x;
         d.fy = event.y;
       }
-  
+
       function dragended(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
@@ -160,9 +185,41 @@ function App() {
   }, [familyMembers]);
 
   return (
-    <div>
-      <h1>Family Members</h1>
-      <svg ref={svgRef} width= {displayWidth} height={displayHeight}></svg>
+    <div style={{ position: 'relative' }}>
+      <h1 style={{ textAlign: 'center' }}>Family Members</h1>
+      <svg ref={svgRef} width={displayWidth} height={displayHeight}></svg>
+      <div style={{ display: 'flex', position: 'absolute', top: '10%', right: '20px', width: '300px', backgroundColor: 'rgb(30 30 30)', borderRadius: '10px', padding: '20px' }}>
+        <form onSubmit={e => { e.preventDefault(); handleAddMember(); }}
+          style={{ width: '90%' }}>
+          <div style={{ marginBottom: '10px' }}>
+            <input
+              type="text"
+              name="first_name"
+              value={newMember.first_name}
+              onChange={handleInputChange}
+              placeholder="First Name"
+              required
+              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey' }}
+            />
+          </div>
+          <div style={{ marginBottom: '10px' }}>
+            <input
+              type="text"
+              name="last_name"
+              value={newMember.last_name}
+              onChange={handleInputChange}
+              placeholder="Last Name"
+              required
+              style={{ width: '100%', padding: '8px', borderRadius: '5px', border: '1px solid #ccc', backgroundColor: 'lightgrey' }}
+            />
+          </div>
+          <button
+            type="submit"
+            style={{ width: '100%', padding: '10px', borderRadius: '5px', backgroundColor: '#4CAF50', color: 'white', border: 'none' }}>
+            Add Member
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

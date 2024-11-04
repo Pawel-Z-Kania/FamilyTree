@@ -28,9 +28,11 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background-color: #242424; 
 }
 
 h1 {
+  color: #ffffff;
   font-size: 3.2em;
   line-height: 1.1;
 }
