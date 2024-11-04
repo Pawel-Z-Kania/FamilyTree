@@ -17,6 +17,11 @@ interface FamilyNode extends d3.SimulationNodeDatum {
   marriage_id: number;
 }
 
+interface MarriageNode extends d3.SimulationNodeDatum {
+  id: number;
+  type: 'marriage';
+}
+
 function App() {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -41,41 +46,49 @@ function App() {
       const width = displayWidth;
       const height = displayHeight;
   
-      const nodes: FamilyNode[] = familyMembers.map((member, index) => ({
+      const nodes: (FamilyNode | MarriageNode)[] = familyMembers.map((member, index) => ({
         id: index,
         name: `${member.first_name} ${member.last_name}`,
         parent_marriage_id: member.parent_marriage_id,
         marriage_id: member.marriage_id,
       }));
-  
-      const links: { source: number; target: number; marriage_id: number | null }[] = [];
+
+      const marriageNodes: MarriageNode[] = [];
       const marriageMap = new Map<number, number[]>();
   
       nodes.forEach(node => {
-        if (node.parent_marriage_id !== null) {
-          const parent = nodes.find(n => n.marriage_id === node.parent_marriage_id);
-          if (parent) {
-            links.push({ source: parent.id, target: node.id, marriage_id: null });
-          }
-        }
-        if (node.marriage_id !== null) {
+        if ('marriage_id' in node && node.marriage_id !== null) {
           if (!marriageMap.has(node.marriage_id)) {
-            marriageMap.set(node.marriage_id, []);
+            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage' };
+            marriageNodes.push(marriageNode);
+            marriageMap.set(node.marriage_id, [marriageNode.id]);
           }
           marriageMap.get(node.marriage_id)!.push(node.id);
         }
       });
+
+      nodes.push(...marriageNodes);
   
-      marriageMap.forEach(ids => {
-        for (let i = 0; i < ids.length - 1; i++) {
-          for (let j = i + 1; j < ids.length; j++) {
-            links.push({ source: ids[i], target: ids[j], marriage_id: ids[i] });
+      const links: { source: number; target: number }[] = [];
+  
+      nodes.forEach(node => {
+        if ('parent_marriage_id' in node && node.parent_marriage_id !== null) {
+          const parent = nodes.find(n => 'marriage_id' in n && n.marriage_id === node.parent_marriage_id);
+          if (parent) {
+            links.push({ source: parent.id, target: node.id });
           }
         }
       });
   
+      marriageMap.forEach(ids => {
+        const marriageNodeId = ids[0];
+        for (let i = 1; i < ids.length; i++) {
+          links.push({ source: marriageNodeId, target: ids[i] });
+        }
+      });
+  
       const simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => (d as FamilyNode).id).distance(100))
+        .force('link', d3.forceLink(links).id(d => (d as FamilyNode | MarriageNode).id).distance(100))
         .force('charge', d3.forceManyBody().strength(-300))
         .force('center', d3.forceCenter(width / 2, height / 2));
   
@@ -85,7 +98,7 @@ function App() {
         .data(links)
         .enter().append('line')
         .attr('stroke-width', 1.5)
-        .attr('stroke', d => d.marriage_id !== null ? 'yellow' : '#999');
+        .attr('stroke', '#999');
   
       const node = svg.append('g')
         .attr('stroke', '#fff')
@@ -93,9 +106,9 @@ function App() {
         .selectAll('circle')
         .data(nodes)
         .enter().append('circle')
-        .attr('r', 5)
-        .attr('fill', '#69b3a2')
-        .call(d3.drag<SVGCircleElement, FamilyNode>()
+        .attr('r', d => 'type' in d && d.type === 'marriage' ? 8 : 5)
+        .attr('fill', d => 'type' in d && d.type === 'marriage' ? 'yellow' : '#69b3a2')
+        .call(d3.drag<SVGCircleElement, FamilyNode | MarriageNode>()
           .on('start', dragstarted)
           .on('drag', dragged)
           .on('end', dragended));
@@ -109,7 +122,7 @@ function App() {
         .attr('dy', -10)
         .attr('text-anchor', 'middle')
         .attr('fill', 'black') 
-        .text(d => d.name);
+        .text(d => 'name' in d ? d.name : 'Marriage');
   
       simulation.on('tick', () => {
         link
@@ -127,18 +140,18 @@ function App() {
           .attr('y', d => d.y!);
       });
   
-      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, FamilyNode, FamilyNode>, d: FamilyNode) {
+      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       }
   
-      function dragged(event: d3.D3DragEvent<SVGCircleElement, FamilyNode, FamilyNode>, d: FamilyNode) {
+      function dragged(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         d.fx = event.x;
         d.fy = event.y;
       }
   
-      function dragended(event: d3.D3DragEvent<SVGCircleElement, FamilyNode, FamilyNode>, d: FamilyNode) {
+      function dragended(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
