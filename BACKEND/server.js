@@ -19,7 +19,7 @@ app.get('/api/family-members', (req, res) => {
 
 app.post('/api/family-members', (req, res) => {
   const { newFamilyMember, relative } = req.body;
-  const { first_name, last_name, parent_marriage_id, marriage_id } = newFamilyMember;
+  const { first_name, last_name, parent_marriage_id, marriage_id, date_of_birth, date_of_death, description } = newFamilyMember;
 
   const { first_name: relativeFirstName, last_name: relativeLastName, parent_marriage_id: relativeParentMarriageId, marriage_id: relativeMarriageId } = relative;
 
@@ -31,8 +31,8 @@ app.post('/api/family-members', (req, res) => {
         res.status(500).send(err);
       } else {
         pool.query(
-          'INSERT INTO family_members (first_name, last_name, parent_marriage_id, marriage_id) VALUES ($1, $2, $3, $4) RETURNING *',
-          [first_name, last_name, parent_marriage_id, marriage_id],
+          'INSERT INTO family_members (first_name, last_name, parent_marriage_id, marriage_id, date_of_birth, date_of_death, description) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+          [first_name, last_name, parent_marriage_id, marriage_id, date_of_birth, date_of_death, description],
           (err, newMemberResults) => {
             if (err) {
               res.status(500).send(err);
