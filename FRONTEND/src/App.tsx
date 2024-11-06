@@ -15,7 +15,6 @@ interface FamilyMember {
   description: string;
 }
 
-
 interface GraphNode extends d3.SimulationNodeDatum {
   id: number;
   type: 'familyMember' | 'marriage';
@@ -27,23 +26,6 @@ interface GraphNode extends d3.SimulationNodeDatum {
   date_of_birth?: string;
 }
 
-interface FamilyNode extends d3.SimulationNodeDatum {
-  id: number;
-  name: string;
-  parent_marriage_id: number | null;
-  marriage_id: number | null;
-  date_of_birth: string;
-  x_position?: number;
-  y_position?: number;
-}
-
-interface MarriageNode extends d3.SimulationNodeDatum {
-  id: number;
-  type: 'marriage';
-  marriage_id: number;
-  x_position?: number;
-  y_position?: number;
-}
 // #endregion INTERFACES ============================================================================================================
 
 
@@ -178,7 +160,7 @@ function App() {
 
   // calculating link distance
   function calculateLinkDistance(link: { type: string; source: any; target: any },
-    _nodes: (FamilyNode | MarriageNode)[]): number {
+    _nodes: (GraphNode)[]): number {
     if (link.type !== 'child-link') {
       return 100;
     }
@@ -186,11 +168,11 @@ function App() {
   }
 
   // TODO: calculating y node positions
-  function calculateNodePositions(nodes: (FamilyNode | MarriageNode)[], height: number) {
+  function calculateNodePositions(nodes: GraphNode[], height: number) {
     nodes.sort((a, b) => {
       if ('date_of_birth' in a && 'date_of_birth' in b) {
-        const dateA = new Date(a.date_of_birth).getTime();
-        const dateB = new Date(b.date_of_birth).getTime();
+        const dateA = a.date_of_birth ? new Date(a.date_of_birth).getTime() : 0;
+        const dateB = b.date_of_birth ? new Date(b.date_of_birth).getTime() : 0;
         return dateB - dateA;
       }
       return 0;
@@ -223,7 +205,7 @@ function App() {
     }
   }
 
-  function calculateYPosition(d: FamilyNode | MarriageNode, height: number, nodes: (FamilyNode | MarriageNode)[]): number {
+  function calculateYPosition(d: GraphNode, height: number, nodes: GraphNode[]): number {
 
     calculateNodePositions(nodes, height);
 
@@ -249,7 +231,7 @@ function App() {
   }
 
 
-  // function calculateXPosition(d: FamilyNode | MarriageNode, width: number, nodes: (FamilyNode | MarriageNode)[]): number {
+  // function calculateXPosition(d: GraphNode, width: number, nodes: (GraphNode)[]): number {
   //   return 20;
   // }
 
@@ -262,8 +244,9 @@ function App() {
       const width = displayWidth;
       const height = displayHeight;
 
-      const nodes: (FamilyNode | MarriageNode)[] = familyMembers.map((member, index) => ({
+      const nodes: (GraphNode)[] = familyMembers.map((member, index) => ({
         id: index,
+        type: 'familyMember',
         name: `${member.first_name} ${member.last_name}`,
         parent_marriage_id: member.parent_marriage_id,
         marriage_id: member.marriage_id,
@@ -272,13 +255,16 @@ function App() {
         y_position: 0,
       }));
 
-      const marriageNodes: MarriageNode[] = [];
+      const marriageNodes: GraphNode[] = [];
       const marriageMap = new Map<number, number[]>();
 
       nodes.forEach(node => {
         if ('marriage_id' in node && node.marriage_id !== null) {
           if (!marriageMap.has(node.marriage_id)) {
-            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: node.marriage_id, x_position: 0, y_position: 0 }; // Add marriage_id here
+            const marriageNode: GraphNode = {
+              id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: node.marriage_id, x_position: 0, y_position: 0,
+              parent_marriage_id: null
+            };
             marriageNodes.push(marriageNode);
             marriageMap.set(node.marriage_id, [marriageNode.id]);
           }
@@ -301,7 +287,14 @@ function App() {
 
       parentMarriageMap.forEach((ids, parentMarriageId) => {
         if (ids.length > 1 && !marriageMap.has(parentMarriageId)) {
-          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: parentMarriageId, x_position: 0, y_position: 0 }; // Add marriage_id here
+          const marriageNode: GraphNode = {
+            id: nodes.length + marriageNodes.length,
+            type: 'marriage',
+            marriage_id: parentMarriageId,
+            x_position: 0,
+            y_position: 0,
+            parent_marriage_id: null
+          }; // Add marriage_id here
           marriageNodes.push(marriageNode);
           marriageMap.set(parentMarriageId, [marriageNode.id, ...ids]);
         }
@@ -313,9 +306,9 @@ function App() {
 
       nodes.forEach(node => {
         if ('parent_marriage_id' in node && node.parent_marriage_id !== null) {
-          const parentMarriageNode = node.parent_marriage_id !== null ? nodes.find(n => 'type' in n && n.type === 'marriage' && marriageMap.get(node.parent_marriage_id!) && n.id === marriageMap.get(node.parent_marriage_id!)![0]) : null;
-          if (parentMarriageNode) {
-            links.push({ source: parentMarriageNode.id, target: node.id, type: 'child-link' });
+          const parentGraphNode = node.parent_marriage_id !== null ? nodes.find(n => 'type' in n && n.type === 'marriage' && marriageMap.get(node.parent_marriage_id!) && n.id === marriageMap.get(node.parent_marriage_id!)![0]) : null;
+          if (parentGraphNode) {
+            links.push({ source: parentGraphNode.id, target: node.id, type: 'child-link' });
           }
         }
       });
@@ -328,12 +321,12 @@ function App() {
       });
 
       const simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => (d as FamilyNode | MarriageNode).id)
+        .force('link', d3.forceLink(links).id(d => (d as GraphNode).id)
           .distance(d => calculateLinkDistance(d as { type: string; source: any; target: any }, nodes)))
         .force('charge', d3.forceManyBody().strength(-100))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('y', d3.forceY().strength(0.1).y(d => calculateYPosition(d as FamilyNode | MarriageNode, height, nodes)));
-      // .force('x', d3.forceX().strength(0.1).x(d => calculateXPosition(d as FamilyNode | MarriageNode, width, nodes)));
+        .force('y', d3.forceY().strength(0.1).y(d => calculateYPosition(d as GraphNode, height, nodes)));
+      // .force('x', d3.forceX().strength(0.1).x(d => calculateXPosition(d as GraphNode, width, nodes)));
 
       const link = svg.append('g')
         .attr('stroke-opacity', 0.6)
@@ -361,7 +354,7 @@ function App() {
         .attr('r', d => 'type' in d && d.type === 'marriage' ? 4 : 8)
         .attr('fill', d => 'type' in d && d.type === 'marriage' ? 'yellow' : '#69b3a2')
         .style('cursor', d => 'type' in d && d.type === 'marriage' ? 'default' : 'pointer')
-        .call(d3.drag<SVGCircleElement, FamilyNode | MarriageNode>()
+        .call(d3.drag<SVGCircleElement, GraphNode>()
           .on('start', dragstarted)
           .on('drag', dragged)
           .on('end', dragended))
@@ -386,14 +379,14 @@ function App() {
 
       simulation.on('tick', () => {
         link
-          .attr('x1', d => ((d.source as unknown) as FamilyNode).x!)
-          .attr('y1', d => ((d.source as unknown) as FamilyNode).y!)
-          .attr('x2', d => ((d.target as unknown) as FamilyNode).x!)
-          .attr('y2', d => ((d.target as unknown) as FamilyNode).y!);
+          .attr('x1', d => ((d.source as unknown) as GraphNode).x!)
+          .attr('y1', d => ((d.source as unknown) as GraphNode).y!)
+          .attr('x2', d => ((d.target as unknown) as GraphNode).x!)
+          .attr('y2', d => ((d.target as unknown) as GraphNode).y!);
 
         linkLabels
-          .attr('x', d => (((d.source as unknown) as FamilyNode).x! + ((d.target as unknown) as FamilyNode).x!) / 2)
-          .attr('y', d => (((d.source as unknown) as FamilyNode).y! + ((d.target as unknown) as FamilyNode).y!) / 2);
+          .attr('x', d => (((d.source as unknown) as GraphNode).x! + ((d.target as unknown) as GraphNode).x!) / 2)
+          .attr('y', d => (((d.source as unknown) as GraphNode).y! + ((d.target as unknown) as GraphNode).y!) / 2);
 
         node
           .attr('cx', d => d.x!)
@@ -404,18 +397,18 @@ function App() {
           .attr('y', d => d.y!);
       });
 
-      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
+      function dragstarted(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
         if (!event.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       }
 
-      function dragged(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
+      function dragged(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
         d.fx = event.x;
         d.fy = event.y;
       }
 
-      function dragended(event: d3.D3DragEvent<SVGCircleElement, FamilyNode | MarriageNode, FamilyNode | MarriageNode>, d: FamilyNode | MarriageNode) {
+      function dragended(event: d3.D3DragEvent<SVGCircleElement, GraphNode, GraphNode>, d: GraphNode) {
         if (!event.active) simulation.alphaTarget(0);
         d.fx = null;
         d.fy = null;
