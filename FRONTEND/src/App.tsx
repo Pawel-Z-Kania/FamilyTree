@@ -3,7 +3,6 @@ import axios from 'axios';
 import * as d3 from 'd3';
 import './App.css';
 
-
 // #region INTERFACES ============================================================================================================
 
 interface FamilyMember {
@@ -16,21 +15,38 @@ interface FamilyMember {
   description: string;
 }
 
+
+interface GraphNode extends d3.SimulationNodeDatum {
+  id: number;
+  type: 'familyMember' | 'marriage';
+  marriage_id: number | null;
+  parent_marriage_id: number | null;
+  x_position?: number;
+  y_position?: number;
+  name?: string;
+  date_of_birth?: string;
+}
+
 interface FamilyNode extends d3.SimulationNodeDatum {
   id: number;
   name: string;
   parent_marriage_id: number | null;
   marriage_id: number | null;
   date_of_birth: string;
+  x_position?: number;
+  y_position?: number;
 }
 
 interface MarriageNode extends d3.SimulationNodeDatum {
   id: number;
   type: 'marriage';
-  marriage_id: number; // Add marriage_id to MarriageNode
+  marriage_id: number;
+  x_position?: number;
+  y_position?: number;
 }
-
 // #endregion INTERFACES ============================================================================================================
+
+
 
 // #region COMPONENT DECLARATION =============================================================================================================
 
@@ -51,6 +67,16 @@ function App() {
   const displayHeight = 800;
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{ x: number; y: number; member: FamilyMember | null }>({ x: 0, y: 0, member: null });
+
+
+  // TODO: include parameters for spacing
+  //
+  // let parameters = {
+  //   verticalChildSpacing: 100,
+  //   verticalSpouseSpacing: 20,
+  //   horizontalSpouseSpacing: 100,
+  //   horizontalChildSpacing: 100,
+  // };
 
 
   // #endregion COMPONENT DECLARATION =============================================================================================================
@@ -150,34 +176,82 @@ function App() {
 
   // #region D3 GRAPH =================================================================================================
 
-  // Helper functions
-  function calculateLinkDistance(link: { type: string; source: any; target: any}, 
-    _nodes: (FamilyNode | MarriageNode)[]): number 
-    {
+  // calculating link distance
+  function calculateLinkDistance(link: { type: string; source: any; target: any },
+    _nodes: (FamilyNode | MarriageNode)[]): number {
     if (link.type !== 'child-link') {
       return 100;
     }
     return 200;
   }
 
-  function calculateYPosition(d: FamilyNode | MarriageNode, height: number, nodes: (FamilyNode | MarriageNode)[]): number {
-    if ('date_of_birth' in d && d.date_of_birth) {
-      const birthDate = new Date(d.date_of_birth).getTime();
-      const currentDate = new Date().getTime();
-      const age = (currentDate - birthDate) / (1000 * 60 * 60 * 24 * 365.25); // Age in years
-      return height / 2 - (age - 50) * 20; // Adjust the multiplier as needed
-    }
-  
-
-    // move marriage nodes higher
-    if ('type' in d && d.type === 'marriage') {
-      const connectedNode = nodes.find(node => 'parent_marriage_id' in node && node.parent_marriage_id === d.marriage_id);
-      if (connectedNode) {
-        return connectedNode.y! + 100; // Adjust the offset as needed
+  // TODO: calculating y node positions
+  function calculateNodePositions(nodes: (FamilyNode | MarriageNode)[], height: number) {
+    nodes.sort((a, b) => {
+      if ('date_of_birth' in a && 'date_of_birth' in b) {
+        const dateA = new Date(a.date_of_birth).getTime();
+        const dateB = new Date(b.date_of_birth).getTime();
+        return dateB - dateA;
       }
+      return 0;
+    });
+
+    let iterations = 0;
+    const maxIterations = 1000;
+
+    while (nodes.some(node => node.y_position === 0) && iterations < maxIterations) {
+      nodes.forEach(node => {
+        if ('type' in node && node.type === 'marriage') {
+          const connectedNode = nodes.find(n => 'parent_marriage_id' in n && n.parent_marriage_id === node.marriage_id && n.y_position !== 0);
+          if (connectedNode) {
+            node.y_position = connectedNode.y! + 100;
+          }
+        } else if ('marriage_id' in node && node.marriage_id) {
+          const connectedNode = nodes.find(n => 'marriage_id' in n && n.marriage_id === node.marriage_id && n.y_position !== 0);
+          if (connectedNode) {
+            node.y_position = connectedNode.y! - 100;
+          }
+        } else {
+          node.y_position = height / 2;
+        }
+      });
+      iterations++;
     }
-    return height / 2;
+
+    if (iterations >= maxIterations) {
+      console.warn('Max iterations reached in calculateNodePositions. Some nodes may not have been positioned correctly.');
+    }
   }
+
+  function calculateYPosition(d: FamilyNode | MarriageNode, height: number, nodes: (FamilyNode | MarriageNode)[]): number {
+
+    calculateNodePositions(nodes, height);
+
+    console.log(nodes);
+
+
+    if ('y_position' in d) {
+      return d.y_position!;
+    }
+    return height;
+
+
+
+
+    // OPTIONAL - based on age
+    //
+    // if ('date_of_birth' in d && d.date_of_birth) {
+    //   const birthDate = new Date(d.date_of_birth).getTime();
+    //   const currentDate = new Date().getTime();
+    //   const age = (currentDate - birthDate) / (1000 * 60 * 60 * 24 * 365.25); // Age in years
+    //   return height / 2 - (age - 50) * 20; // Adjust the multiplier as needed
+    // }
+  }
+
+
+  // function calculateXPosition(d: FamilyNode | MarriageNode, width: number, nodes: (FamilyNode | MarriageNode)[]): number {
+  //   return 20;
+  // }
 
   // D3 simulation and rendering
   useEffect(() => {
@@ -194,6 +268,8 @@ function App() {
         parent_marriage_id: member.parent_marriage_id,
         marriage_id: member.marriage_id,
         date_of_birth: member.date_of_birth,
+        x_position: 0,
+        y_position: 0,
       }));
 
       const marriageNodes: MarriageNode[] = [];
@@ -202,7 +278,7 @@ function App() {
       nodes.forEach(node => {
         if ('marriage_id' in node && node.marriage_id !== null) {
           if (!marriageMap.has(node.marriage_id)) {
-            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: node.marriage_id }; // Add marriage_id here
+            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: node.marriage_id, x_position: 0, y_position: 0 }; // Add marriage_id here
             marriageNodes.push(marriageNode);
             marriageMap.set(node.marriage_id, [marriageNode.id]);
           }
@@ -225,7 +301,7 @@ function App() {
 
       parentMarriageMap.forEach((ids, parentMarriageId) => {
         if (ids.length > 1 && !marriageMap.has(parentMarriageId)) {
-          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: parentMarriageId }; // Add marriage_id here
+          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: parentMarriageId, x_position: 0, y_position: 0 }; // Add marriage_id here
           marriageNodes.push(marriageNode);
           marriageMap.set(parentMarriageId, [marriageNode.id, ...ids]);
         }
@@ -257,6 +333,7 @@ function App() {
         .force('charge', d3.forceManyBody().strength(-100))
         .force('center', d3.forceCenter(width / 2, height / 2))
         .force('y', d3.forceY().strength(0.1).y(d => calculateYPosition(d as FamilyNode | MarriageNode, height, nodes)));
+      // .force('x', d3.forceX().strength(0.1).x(d => calculateXPosition(d as FamilyNode | MarriageNode, width, nodes)));
 
       const link = svg.append('g')
         .attr('stroke-opacity', 0.6)
