@@ -4,7 +4,7 @@ import * as d3 from 'd3';
 import './App.css';
 
 
-// INTERFACES ============================================================================================================
+// #region INTERFACES ============================================================================================================
 
 interface FamilyMember {
   first_name: string;
@@ -27,10 +27,13 @@ interface FamilyNode extends d3.SimulationNodeDatum {
 interface MarriageNode extends d3.SimulationNodeDatum {
   id: number;
   type: 'marriage';
+  marriage_id: number; // Add marriage_id to MarriageNode
 }
 
+// #endregion INTERFACES ============================================================================================================
 
-// COMPONENT =============================================================================================================
+// #region COMPONENT DECLARATION =============================================================================================================
+
 
 function App() {
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
@@ -49,6 +52,8 @@ function App() {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{ x: number; y: number; member: FamilyMember | null }>({ x: 0, y: 0, member: null });
 
+
+  // #endregion COMPONENT DECLARATION =============================================================================================================
 
   // #region LOADING AND SAVING DATA ====================================================================================
 
@@ -143,24 +148,38 @@ function App() {
 
   // #endregion LOADING AND SAVING DATA ====================================================================================
 
-
-  const toggleFormVisibility = () => {
-    setIsFormVisible(!isFormVisible);
-  };
-
-  const handleRightClick = (event: React.MouseEvent, member: FamilyMember) => {
-    event.preventDefault();
-    setPopupInfo({ x: event.clientX, y: event.clientY, member });
-  };
-
-  const handleClosePopup = () => {
-    setPopupInfo({ x: 0, y: 0, member: null });
-  };
-
-
-
   // #region D3 GRAPH =================================================================================================
 
+  // Helper functions
+  function calculateLinkDistance(link: { type: string; source: any; target: any}, 
+    _nodes: (FamilyNode | MarriageNode)[]): number 
+    {
+    if (link.type !== 'child-link') {
+      return 100;
+    }
+    return 200;
+  }
+
+  function calculateYPosition(d: FamilyNode | MarriageNode, height: number, nodes: (FamilyNode | MarriageNode)[]): number {
+    if ('date_of_birth' in d && d.date_of_birth) {
+      const birthDate = new Date(d.date_of_birth).getTime();
+      const currentDate = new Date().getTime();
+      const age = (currentDate - birthDate) / (1000 * 60 * 60 * 24 * 365.25); // Age in years
+      return height / 2 - (age - 50) * 20; // Adjust the multiplier as needed
+    }
+  
+
+    // move marriage nodes higher
+    if ('type' in d && d.type === 'marriage') {
+      const connectedNode = nodes.find(node => 'parent_marriage_id' in node && node.parent_marriage_id === d.marriage_id);
+      if (connectedNode) {
+        return connectedNode.y! + 100; // Adjust the offset as needed
+      }
+    }
+    return height / 2;
+  }
+
+  // D3 simulation and rendering
   useEffect(() => {
     if (familyMembers.length > 0) {
       const svg = d3.select(svgRef.current);
@@ -183,7 +202,7 @@ function App() {
       nodes.forEach(node => {
         if ('marriage_id' in node && node.marriage_id !== null) {
           if (!marriageMap.has(node.marriage_id)) {
-            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage' };
+            const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: node.marriage_id }; // Add marriage_id here
             marriageNodes.push(marriageNode);
             marriageMap.set(node.marriage_id, [marriageNode.id]);
           }
@@ -206,7 +225,7 @@ function App() {
 
       parentMarriageMap.forEach((ids, parentMarriageId) => {
         if (ids.length > 1 && !marriageMap.has(parentMarriageId)) {
-          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage' };
+          const marriageNode: MarriageNode = { id: nodes.length + marriageNodes.length, type: 'marriage', marriage_id: parentMarriageId }; // Add marriage_id here
           marriageNodes.push(marriageNode);
           marriageMap.set(parentMarriageId, [marriageNode.id, ...ids]);
         }
@@ -232,47 +251,12 @@ function App() {
         }
       });
 
-
-      /// TODO - BELOW /////////////////////////////////////////////////////////////////////////////////////////////////
-
       const simulation = d3.forceSimulation(nodes)
         .force('link', d3.forceLink(links).id(d => (d as FamilyNode | MarriageNode).id)
-          .distance(d => {
-
-            const link = d as { source: any; target: any };
-
-            console.log('link', link);
-            console.log('nodes', nodes);
-
-            //if(link.index)
-
-
-            if (link.source.type === 'marriage' && link.target.marriage_id != null) {
-              return 120;
-            }
-            return 200;
-          }))
+          .distance(d => calculateLinkDistance(d as { type: string; source: any; target: any }, nodes)))
         .force('charge', d3.forceManyBody().strength(-100))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('y', d3.forceY().strength(0.1).y(d => {
-          if ('date_of_birth' in d && d.date_of_birth) {
-            const birthDate = new Date((d as FamilyNode).date_of_birth).getTime();
-            const currentDate = new Date().getTime();
-            const age = (currentDate - birthDate) / (1000 * 60 * 60 * 24 * 365.25); // Age in years
-            return height / 2 - (age - 50) * 10; // Adjust the multiplier as needed
-          }
-
-          // TODO - MODIFY this to adjust the y position of marriage nodes
-          if ('type' in d && d.type === 'marriage') {
-            const connectedNode = nodes.find(node => 'parent_marriage_id' in node && node.parent_marriage_id === (d as MarriageNode).id);
-            if (connectedNode) {
-              return connectedNode.y! - 100; // Adjust the offset as needed
-            }
-          }
-          return height / 2;
-        }));
-
-      /// TODO - ABOVE /////////////////////////////////////////////////////////////////////////////////////////////////  
+        .force('y', d3.forceY().strength(0.1).y(d => calculateYPosition(d as FamilyNode | MarriageNode, height, nodes)));
 
       const link = svg.append('g')
         .attr('stroke-opacity', 0.6)
@@ -320,7 +304,8 @@ function App() {
         .attr('dy', -10)
         .attr('text-anchor', 'middle')
         .attr('fill', 'gray')
-        .text(d => 'name' in d ? d.name : 'Marriage');
+        .style('user-select', 'none') // Make labels unselectable
+        .text(d => 'name' in d ? `${d.name} (ID: ${d.id})` : `ID: ${d.id}`); // Show name and ID for each node
 
       simulation.on('tick', () => {
         link
@@ -361,9 +346,24 @@ function App() {
     }
   }, [familyMembers]);
 
-
   // #endregion D3 GRAPH =================================================================================================
 
+  // #region HELPER FUNCTIONS ============================================================================================
+
+  const toggleFormVisibility = () => {
+    setIsFormVisible(!isFormVisible);
+  };
+
+  const handleRightClick = (event: React.MouseEvent, member: FamilyMember) => {
+    event.preventDefault();
+    setPopupInfo({ x: event.clientX, y: event.clientY, member });
+  };
+
+  const handleClosePopup = () => {
+    setPopupInfo({ x: 0, y: 0, member: null });
+  };
+
+  // #endregion HELPER FUNCTIONS ============================================================================================
 
   // #region HTML Content =================================================================================================
 
